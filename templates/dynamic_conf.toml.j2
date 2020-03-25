@@ -1,0 +1,10 @@
+[[tls.certificates]]
+  certFile = "/certs/certs/{{ inventory_hostname }}.pem"
+  keyFile = "/certs/private/{{ inventory_hostname }}.pem"
+{% if traefik_external_hostnames is defined %}
+{% for host in traefik_external_hostnames %}
+[[tls.certificates]]
+  certFile = "/certs/certs/{{ host }}.pem"
+  keyFile = "/certs/private/{{ host }}.pem"
+{% endfor %}
+{% endif %}

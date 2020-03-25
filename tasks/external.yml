@@ -1,0 +1,10 @@
+---
+- name: Copy external private key for {{ item.hostname }}
+  copy:
+    content: "{{ item.key }}"
+    dest: "{{ traefik_cert_dir }}/private/{{ item.hostname }}.key"
+
+- name: Copy external certificates for {{ item.hostname }}
+  copy:
+    content: "{{ item.cert }}"
+    dest: "{{ traefik_cert_dir }}/certs/{{ item.hostname }}.pem"

@@ -1,0 +1,25 @@
+---
+traefik_directory: "/docker/traefik-config"
+traefik_cert_dir: "/etc/pki/tls"
+
+traefik_network_int: "traefik-int"
+# traefik_network_ext: "traefik-ext"
+
+traefik_port: "8080"
+
+traefik_docker_image: "traefik"
+
+traefik_docker_published_ports:
+  - "80:80"
+  - "443:443"
+
+traefik_docker_volumes:
+  - "{{traefik_directory}}/:/etc/traefik/:rw"
+  - "/etc/pki/tls/:/certs/:ro"
+  - "/var/run/docker.sock:/var/run/docker.sock:rw"
+
+traefik_docker_host: "unix://var/run/docker.sock"
+
+traefik_user: "{{ service_traefik_user | default('admin') }}"
+traefik_password: "{{ service_traefik_password | default('admin123') }}"
+

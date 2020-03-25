@@ -1,0 +1,98 @@
+---
+
+- name: Create directory
+  file:
+    path: /etc/systemd/system/docker.service.d/
+    state: directory
+
+- name: Copy docker proxy settings
+  copy:
+    src: files/http-proxy.conf
+    dest: /etc/systemd/system/docker.service.d/http-proxy.conf
+    owner: root
+    group: root
+    mode: '0644'
+  register: docker_proxy
+
+- name: Restart Docker
+  service:
+    name: docker
+    state: restarted
+  when: docker_proxy.changed
+
+- name: Create traefik directory
+  file:
+    path: "{{ item }}"
+    state: directory
+  with_items:
+    - "{{ traefik_directory }}"
+    - "{{ traefik_cert_dir }}"
+
+- name: Configure Traefik - static part
+  template:
+    src: traefik.toml.j2
+    dest: "{{ traefik_directory }}/traefik.toml"
+  notify: restart-traefik
+
+- name: Configure Traefik - dynamic part
+  template:
+    src: dynamic_conf.toml.j2
+    dest: "{{ traefik_directory }}/dynamic_conf.toml"
+  notify: restart-traefik
+
+- name: Create traefik docker internal network
+  docker_network:
+    name: "{{ traefik_network_int }}"
+    internal: yes
+    state: present
+
+- name: Create internal certificate - all defaults
+  ipa_certificate:
+
+- name: Set permission on internal certificate
+  file:
+    path: "/etc/pki/tls/certs/{{ inventory_hostname }}.pem"
+    mode: 0644
+
+- name: Extend the list of published ports
+  set_fact:
+    published_ports: "{{ published_ports | default(traefik_docker_published_ports) + container_port }}"
+  vars:
+    container_port: "{{ [ hostvars[host].traefik_entrypoint.port | string + ':' + hostvars[host].traefik_entrypoint.port | string ] if 'traefik_entrypoint' in hostvars[host] else [] }}"
+  loop: "{{ traefik_external_hostnames }}"
+  loop_control:
+    loop_var: host
+
+- name: Launch the Traefik container
+  docker_container:
+    name: traefik
+    image: "{{ traefik_docker_image }}"
+    state: started
+    recreate: no
+    restart_policy: unless-stopped
+    published_ports: "{{ published_ports | default(traefik_docker_published_ports) }}"
+    exposed_ports: "{{ traefik_port }}"
+    command: --api --providers.docker=true --api.insecure
+    volumes: "{{ traefik_docker_volumes }}"
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.traefik.rule: "Host(`{{ inventory_hostname }}`)"
+      traefik.http.routers.traefik.entrypoints: "{{ traefik_insecure_entrypoint }}"
+      traefik.http.routers.traefik.service: "api@internal"
+      traefik.http.routers.traefik-secure.rule: "Host(`{{ inventory_hostname }}`)"
+      traefik.http.routers.traefik-secure.entrypoints: "{{ traefik_secure_entrypoint }}"
+      traefik.http.routers.traefik-secure.service: "api@internal"
+      traefik.http.routers.traefik-secure.tls: "true"
+      traefik.http.services.traefik.loadbalancer.server.port: "{{ traefik_port }}"
+      # global redirect to https
+      traefik.http.routers.http-catchall.rule: "hostregexp(`{host:.+}`)"
+      traefik.http.routers.http-catchall.entrypoints: "{{ traefik_insecure_entrypoint }}"
+      traefik.http.routers.http-catchall.middlewares: "redirect-to-https"
+      # middleware redirect
+      traefik.http.middlewares.redirect-to-https.redirectscheme.scheme: "https"
+    purge_networks: yes
+    networks:
+      - name: "bridge"
+      - name: "{{ traefik_network_int }}"
+  tags:
+    - traefik_start
